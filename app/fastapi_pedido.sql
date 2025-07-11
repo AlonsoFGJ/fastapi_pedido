@@ -7,5 +7,7 @@ CREATE TABLE pedido(
     pago_comprobado VARCHAR2(30) NOT NULL
 );
 
+INSERT INTO pedido VALUES('1', '1', '10033190-k', 'Pendiente');
+
 COMMIT;
 

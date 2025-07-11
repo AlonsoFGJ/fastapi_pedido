@@ -1,36 +1,39 @@
 from fastapi import APIRouter, HTTPException
 from app.database import get_conexion
 from pydantic import BaseModel
+from typing import Optional
 
-#vamos a crear la variable para las rutas:
+# Ruta para el recurso "pedido"
 router = APIRouter(
     prefix="/pedido",
     tags=["pedido"]
 )
 
-class PedidoModel(BaseModel):    
+# Modelo de datos
+class PedidoModel(BaseModel):
+    id_carrito: int
     rut_usuario: str
-    descripcion_carrito: str
-    precio_total: int
     pago_comprobado: str
 
     class Config:
         from_attributes = True
 
-#endpoints: GET, GET, POST, PUT, DELETE, PATCH
+# Obtener todos los pedidos
 @router.get("/")
 def obtener_pedidos():
     try:
         cone = get_conexion()
         cursor = cone.cursor()
-        cursor.execute("SELECT id_pedido,rut_usuario,descripcion_carrito,precio_total,pago_comprobado FROM pedido")
+        cursor.execute("""
+            SELECT id_pedido, id_carrito, rut_usuario, pago_comprobado 
+            FROM pedido
+        """)
         pedidos = []
-        for id_pedido,rut_usuario,descripcion_carrito,precio_total,pago_comprobado in cursor:
+        for id_pedido, id_carrito, rut_usuario, pago_comprobado in cursor:
             pedidos.append({
                 "id_pedido": id_pedido,
+                "id_carrito": id_carrito,
                 "rut_usuario": rut_usuario,
-                "descripcion_carrito": descripcion_carrito,
-                "precio_total": precio_total,
                 "pago_comprobado": pago_comprobado
             })
         cursor.close()
@@ -39,49 +42,75 @@ def obtener_pedidos():
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
 
-@router.get("/{id_buscar}")
-def obtener_pedido(id_buscar: int):
+# Obtener un pedido por ID
+@router.get("/{id_pedido}")
+def obtener_pedido(id_pedido: int):
     try:
         cone = get_conexion()
         cursor = cone.cursor()
-        cursor.execute("SELECT id_pedido,rut_usuario,descripcion_carrito,precio_total,pago_comprobado FROM pedido WHERE id_pedido = :id_pedido"
-                       ,{"id_pedido": id_buscar})
-        pedidoESP = cursor.fetchone()
+        cursor.execute("""
+            SELECT id_carrito, rut_usuario, pago_comprobado 
+            FROM pedido WHERE id_pedido = :id_pedido
+        """, {"id_pedido": id_pedido})
+        pedido = cursor.fetchone()
         cursor.close()
         cone.close()
-        if not pedidoESP:
-            raise HTTPException(status_code=404, detail="pedido no encontrado")
+        if not pedido:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
         return {
-            "id_pedido": id_buscar,
-            "rut_usuario": pedidoESP[0],
-            "descripcion_carrito": pedidoESP[1],
-            "precio_total": pedidoESP[2],
-            "pago_comprobado": pedidoESP[3]
+            "id_pedido": id_pedido,
+            "id_carrito": pedido[0],
+            "rut_usuario": pedido[1],
+            "pago_comprobado": pedido[2]
         }
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
 
-@router.post("/")
+@router.get("/por-rut/{rut_usuario}")
+def obtener_pedido_por_rut(rut_usuario: str):
+    try:
+        cone = get_conexion()
+        cursor = cone.cursor()
+        cursor.execute("""
+            SELECT id_carrito, pago_comprobado 
+            FROM pedido 
+            WHERE rut_usuario = :rut_usuario
+        """, {"rut_usuario": rut_usuario})
+        pedidos = cursor.fetchall()
+        cursor.close()
+        cone.close()
+        if not pedidos:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
+        return [
+            {
+                "rut_usuario": rut_usuario,
+                "id_carrito": p[0],
+                "pago_comprobado": p[1]
+            } for p in pedidos
+        ]
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=str(ex))
+
+# Agregar un nuevo pedido
 @router.post("/")
 def agregar_pedido(pedido: PedidoModel):
     try:
         cone = get_conexion()
         cursor = cone.cursor()
 
-        # Obtener el último id_pedido
+        # Obtener el nuevo ID
         cursor.execute("SELECT MAX(id_pedido) FROM pedido")
         ultimo_id = cursor.fetchone()[0]
         nuevo_id = 1 if ultimo_id is None else ultimo_id + 1
 
-        # Insertar con el nuevo id
+        # Insertar pedido
         cursor.execute("""
-            INSERT INTO pedido (id_pedido, rut_usuario, descripcion_carrito, precio_total, pago_comprobado)
-            VALUES (:id_pedido, :rut_usuario, :descripcion_carrito, :precio_total, :pago_comprobado)
+            INSERT INTO pedido (id_pedido, id_carrito, rut_usuario, pago_comprobado)
+            VALUES (:id_pedido, :id_carrito, :rut_usuario, :pago_comprobado)
         """, {
             "id_pedido": nuevo_id,
+            "id_carrito": pedido.id_carrito,
             "rut_usuario": pedido.rut_usuario,
-            "descripcion_carrito": pedido.descripcion_carrito,
-            "precio_total": pedido.precio_total,
             "pago_comprobado": pedido.pago_comprobado
         })
 
@@ -92,80 +121,106 @@ def agregar_pedido(pedido: PedidoModel):
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
 
-@router.put("/{id_actualizar}")
-def actualizar_pedido(id_pedido:int, rut_usuario:str, descripcion_carrito:str,precio_total:int, pago_comprobado:str):
+# Actualizar completamente un pedido
+@router.put("/{id_pedido}")
+def actualizar_pedido(id_pedido: int,  pedido: PedidoModel):
     try:
         cone = get_conexion()
         cursor = cone.cursor()
+
+        # 1. Obtener valores actuales del pedido
         cursor.execute("""
-                UPDATE pedido
-                SET rut_usuario = :rut_usuario,descripcion_carrito = :descripcion_carrito,precio_total = :precio_total,pago_comprobado = :pago_comprobado
-                WHERE id_pedido = :id_pedido
-        """, {"id_pedido":id_pedido,"rut_usuario":rut_usuario,"descripcion_carrito":descripcion_carrito,"precio_total":precio_total,"pago_comprobado":pago_comprobado})
-        if cursor.rowcount==0:
+            SELECT id_carrito, rut_usuario, pago_comprobado 
+            FROM pedido WHERE id_pedido = :id_pedido
+        """, {"id_pedido": id_pedido})
+        pedido_actual = cursor.fetchone()
+
+        if not pedido_actual:
             cursor.close()
             cone.close()
-            raise HTTPException(status_code=404, detail="pedido no encontrado")
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+        # 2. Usar los valores nuevos o mantener los antiguos
+        id_carrito = pedido.id_carrito or pedido_actual[0]
+        rut_usuario = pedido.rut_usuario or pedido_actual[1]
+        pago_comprobado = pedido.pago_comprobado or pedido_actual[2]
+
+        # 3. Actualizar con los valores definitivos
+        cursor.execute("""
+            UPDATE pedido 
+            SET id_carrito = :id_carrito,
+                rut_usuario = :rut_usuario,
+                pago_comprobado = :pago_comprobado
+            WHERE id_pedido = :id_pedido
+        """, {
+            "id_pedido": id_pedido,
+            "id_carrito": id_carrito,
+            "rut_usuario": rut_usuario,
+            "pago_comprobado": pago_comprobado
+        })
+
         cone.commit()
         cursor.close()
         cone.close()
-        return {"mensaje": "pedido actualizado con éxito"}
+        return {"mensaje": "Pedido actualizado con éxito"}
+
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
 
-@router.delete("/{id_eliminar}")
-def eliminar_pedido(id_eliminar: int):
+# Eliminar un pedido
+@router.delete("/{id_pedido}")
+def eliminar_pedido(id_pedido: int):
     try:
         cone = get_conexion()
         cursor = cone.cursor()
-        cursor.execute("DELETE FROM pedido WHERE id_pedido = :id_pedido"
-                       ,{"id_pedido": id_eliminar})
-        if cursor.rowcount==0:
-            cursor.close()
-            cone.close()
-            raise HTTPException(status_code=404, detail="pedido no encontrado")
+        cursor.execute("DELETE FROM pedido WHERE id_pedido = :id_pedido", {"id_pedido": id_pedido})
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
         cone.commit()
         cursor.close()
         cone.close()
-        return {"mensaje": "pedido eliminado con éxito"}
+        return {"mensaje": "Pedido eliminado con éxito"}
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
 
-
-from typing import Optional
-
-@router.patch("/{id_actualizar}")
-def actualizar_parcial(id_actualizar:int, rut_usuario:Optional[str]=None, descripcion_carrito:Optional[str]=None,precio_total:Optional[int]=None, pago_comprobado:Optional[int]=None):
+# Actualización parcial de un pedido
+@router.patch("/{id_pedido}")
+def actualizar_parcial(
+    id_pedido: int,
+    id_carrito: Optional[int] = None,
+    rut_usuario: Optional[str] = None,
+    pago_comprobado: Optional[str] = None
+):
     try:
-        if not rut_usuario and not descripcion_carrito and not precio_total and not pago_comprobado:
-            raise HTTPException(status_code=400, detail="Debe enviar al menos 1 dato")
-        cone = get_conexion()
-        cursor = cone.cursor()
+        if not any([id_carrito, rut_usuario, pago_comprobado]):
+            raise HTTPException(status_code=400, detail="Debe proporcionar al menos un campo para actualizar")
 
         campos = []
-        valores = {"id_pedido": id_actualizar}
-        if rut_usuario:
+        valores = {"id_pedido": id_pedido}
+        if id_carrito is not None:
+            campos.append("id_carrito = :id_carrito")
+            valores["id_carrito"] = id_carrito
+        if rut_usuario is not None:
             campos.append("rut_usuario = :rut_usuario")
             valores["rut_usuario"] = rut_usuario
-        if descripcion_carrito:
-            campos.append("descripcion_carrito = :descripcion_carrito")
-            valores["descripcion_carrito"] = descripcion_carrito
-        if precio_total:
-            campos.append("precio_total = :precio_total")
-            valores["precio_total"] = precio_total
-        if pago_comprobado:
+        if pago_comprobado is not None:
             campos.append("pago_comprobado = :pago_comprobado")
             valores["pago_comprobado"] = pago_comprobado
 
-        cursor.execute(f"UPDATE pedido SET {', '.join(campos)} WHERE id_pedido = :id_pedido"
-                       ,valores)
-        if cursor.rowcount==0:
-            cursor.close()
-            cone.close()
-            raise HTTPException(status_code=404, detail="pedido no encontrado")
+        cone = get_conexion()
+        cursor = cone.cursor()
+        cursor.execute(f"""
+            UPDATE pedido SET {', '.join(campos)} 
+            WHERE id_pedido = :id_pedido
+        """, valores)
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
         cone.commit()
         cursor.close()
         cone.close()
-        return {"mensaje": "pedido actualizado con éxito"}
+        return {"mensaje": "Pedido actualizado parcialmente con éxito"}
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
+
