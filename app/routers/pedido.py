@@ -9,6 +9,11 @@ router = APIRouter(
     tags=["pedido"]
 )
 
+class PedidoUpdateModel(BaseModel):
+    descripcion_pedido: Optional[str] = None
+    rut_usuario: Optional[str] = None
+    pago_comprobado: Optional[str] = None
+
 # Modelo de datos
 class PedidoModel(BaseModel):
     descripcion_pedido: str
@@ -17,6 +22,25 @@ class PedidoModel(BaseModel):
 
     class Config:
         from_attributes = True
+
+@router.get("/ultimo-id")
+def obtener_ultimo_id():
+    try:
+        cone = get_conexion()
+        cursor = cone.cursor()
+
+        # Obtener el último id_pedido usado
+        cursor.execute("SELECT MAX(id_pedido) FROM pedido")
+        resultado = cursor.fetchone()[0]
+        
+        cursor.close()
+        cone.close()
+
+        # Si no hay pedidos, devolvemos 0 para que el siguiente sea 1
+        return {"ultimo_id": resultado if resultado is not None else 0}
+    
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=str(ex))
 
 # Obtener todos los pedidos
 @router.get("/")
@@ -176,27 +200,27 @@ def eliminar_pedido(id_pedido: int):
 
 # Actualización parcial de un pedido
 @router.patch("/{id_pedido}")
-def actualizar_parcial(
-    id_pedido: int,
-    descripcion_pedido: Optional[str] = None,
-    rut_usuario: Optional[str] = None,
-    pago_comprobado: Optional[str] = None
-):
+def actualizar_parcial(id_pedido: int, pedido: PedidoUpdateModel):
     try:
-        if not any([descripcion_pedido, rut_usuario, pago_comprobado]):
+        if not any([
+            pedido.descripcion_pedido,
+            pedido.rut_usuario,
+            pedido.pago_comprobado
+        ]):
             raise HTTPException(status_code=400, detail="Debe proporcionar al menos un campo para actualizar")
 
         campos = []
         valores = {"id_pedido": id_pedido}
-        if descripcion_pedido is not None:
+
+        if pedido.descripcion_pedido is not None:
             campos.append("descripcion_pedido = :descripcion_pedido")
-            valores["descripcion_pedido"] = descripcion_pedido
-        if rut_usuario is not None:
+            valores["descripcion_pedido"] = pedido.descripcion_pedido
+        if pedido.rut_usuario is not None:
             campos.append("rut_usuario = :rut_usuario")
-            valores["rut_usuario"] = rut_usuario
-        if pago_comprobado is not None:
+            valores["rut_usuario"] = pedido.rut_usuario
+        if pedido.pago_comprobado is not None:
             campos.append("pago_comprobado = :pago_comprobado")
-            valores["pago_comprobado"] = pago_comprobado
+            valores["pago_comprobado"] = pedido.pago_comprobado
 
         cone = get_conexion()
         cursor = cone.cursor()
