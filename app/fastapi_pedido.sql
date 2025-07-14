@@ -2,12 +2,10 @@ DROP TABLE pedido;
 
 CREATE TABLE pedido(
     id_pedido NUMBER(8) PRIMARY KEY,
-    id_carrito NUMBER(8) NOT NULL,
+    descripcion_pedido varchar2(2000) NOT NULL,
     rut_usuario VARCHAR2(10) NOT NULL,
     pago_comprobado VARCHAR2(30) NOT NULL
 );
 
-INSERT INTO pedido VALUES('1', '1', '10033190-k', 'Pendiente');
 
 COMMIT;
-
